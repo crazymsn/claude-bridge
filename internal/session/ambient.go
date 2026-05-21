@@ -1,3 +1,5 @@
+//go:build !windows
+
 package session
 
 import (
@@ -25,20 +27,6 @@ type registeredSessionManifest struct {
 	WorkDir    string `json:"work_dir"`
 	InputPipe  string `json:"input_pipe"`
 	OutputPipe string `json:"output_pipe"`
-}
-
-// SetTarget sets the single message target that receives output from the bridge.
-func (m *Manager) SetTarget(targetID string) {
-	m.mu.Lock()
-	m.targetID = targetID
-	m.mu.Unlock()
-}
-
-// GetTarget returns the current message target (empty if unset).
-func (m *Manager) GetTarget() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.targetID
 }
 
 // StartAmbientWatcher initialises local-session support:

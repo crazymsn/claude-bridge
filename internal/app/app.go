@@ -18,10 +18,13 @@ func AssetRoot() (string, error) {
 
 	exeDir := filepath.Dir(exePath)
 	prefixDir := filepath.Dir(exeDir)
+	cwd, _ := os.Getwd()
 
 	candidates := []string{
 		filepath.Join(prefixDir, "share", Name), // Homebrew pkgshare
 		prefixDir,                               // local bin/ layout
+		cwd,                                     // source checkout
+		filepath.Dir(cwd),                       // go run ./cmd from repo/cmd
 	}
 
 	for _, root := range candidates {

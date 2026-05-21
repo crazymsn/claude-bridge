@@ -1,10 +1,6 @@
-欢迎关注B站及YouTube频道：深度云创科技，感兴趣的朋友欢迎加入新时代智能体交流社群
-
-客服微信：16773345788
-
 # ClaudeBridge
 
-ClaudeBridge connects Claude Code to a personal WeChat account, so you can start, select, and control Claude sessions from your phone while the real Claude Code process keeps running on your Mac.
+ClaudeBridge connects Claude Code to a personal WeChat account, so you can start, select, and control Claude sessions from your phone while the real Claude Code process keeps running on your computer.
 
 This repository is the Claude-focused sibling of the WeChat runtime flow used by `codex-bridge`: scan QR once, keep a long-running bridge process alive, route WeChat text to a local coding agent, and push agent output plus permission prompts back to WeChat.
 
@@ -14,20 +10,25 @@ This repository is the Claude-focused sibling of the WeChat runtime flow used by
 - Long-running `serve` loop for receiving WeChat messages and sending replies.
 - Multiple Claude Code sessions, each addressable from WeChat.
 - Slash-command UX aligned with `codex-bridge`, while keeping the original short `#` commands.
-- Claude Code hook integration for tool output, final answers, notifications, permission requests, elicitation prompts, compaction events, and subagent events.
+- Claude Code hook integration on macOS for tool output, final answers, notifications, permission requests, elicitation prompts, compaction events, and subagent events.
+- Direct Claude child-process sessions on Windows, with stdin/stdout/stderr bridged to WeChat.
 - Context-token persistence so outbound WeChat replies keep working after bridge restarts.
 - Message chunking below WeChat text limits and typing indicators where the transport supports them.
 
 ## Runtime Requirements
 
-ClaudeBridge is designed to run on macOS because it uses Terminal, FIFO pipes, `/tmp`, `lsof`, and Claude Code hooks.
+Supported hosts:
 
-Required on the Mac:
+- macOS: full Terminal/FIFO/hook integration, including discovery of locally started Claude sessions.
+- Windows: bridge-created Claude sessions via `/new`, using direct child-process pipes.
+
+Required:
 
 - Go 1.22 or newer
-- Python 3
 - Claude Code CLI available as `claude`
 - A personal WeChat account that can scan the login QR code
+
+macOS also requires Python 3 for the hook and terminal mux scripts.
 
 ## Build
 
@@ -43,9 +44,21 @@ The binary is written to:
 ./bin/claude-bridge
 ```
 
+Windows PowerShell:
+
+```powershell
+go build -o .\bin\claude-bridge.exe .\cmd
+```
+
+The binary is written to:
+
+```text
+.\bin\claude-bridge.exe
+```
+
 ## First-Time Setup
 
-Install the Claude hook script:
+On macOS, install the Claude hook script:
 
 ```bash
 ./bin/claude-bridge install-hooks
@@ -63,16 +76,34 @@ Then scan the WeChat QR code:
 ./bin/claude-bridge login
 ```
 
+On Windows:
+
+```powershell
+.\bin\claude-bridge.exe login
+```
+
 Start the bridge:
 
 ```bash
 ./bin/claude-bridge start
 ```
 
+On Windows:
+
+```powershell
+.\bin\claude-bridge.exe start
+```
+
 For foreground debugging:
 
 ```bash
 ./bin/claude-bridge serve
+```
+
+On Windows:
+
+```powershell
+.\bin\claude-bridge.exe serve
 ```
 
 ## Local Commands
@@ -99,7 +130,7 @@ Recommended slash commands:
 |---|---|
 | `/help` or `/h` | Show command help |
 | `/status` or `/st` | List active sessions |
-| `/new ~/my-project` or `/n ~/my-project` | Open a new Claude session on the Mac |
+| `/new ~/my-project` or `/n ~/my-project` | Open a new Claude session |
 | `/open 01` or `/o 01` | Set session `01` as default |
 | `/s 01 hello` | Send a message to session `01` |
 | `/allow` or `/al` | Allow the pending Claude permission request |
@@ -137,7 +168,23 @@ bridge.pid             background bridge PID
 bridge.log             rotating runtime log
 ```
 
-Session pipes and runtime manifests are kept under `/tmp/claude-bridge-*`.
+macOS session pipes and runtime manifests are kept under `/tmp/claude-bridge-*`. Windows bridge-created sessions are kept in the running bridge process and are not discoverable after the process exits.
+
+## Windows Notes
+
+Windows support focuses on sessions created through WeChat:
+
+```text
+/new C:\path\to\project
+```
+
+The bridge starts `claude` as a child process in that directory, sends WeChat text to Claude stdin, and forwards Claude stdout/stderr back to WeChat.
+
+Current Windows limits:
+
+- `install-hooks` is primarily for macOS hook integration.
+- `claude-bridge list` only shows filesystem-discoverable macOS sessions; Windows in-process sessions are visible through `/status` while `serve` is running.
+- Attaching to a Claude session that was already opened manually in a Windows terminal is not implemented yet.
 
 ## Development
 
@@ -146,7 +193,12 @@ make cli
 go test ./...
 ```
 
-On non-macOS systems, the source can be edited and reviewed, but the full runtime path is macOS-only.
+Windows build check:
+
+```powershell
+go test .\...
+go build -o .\bin\claude-bridge.exe .\cmd
+```
 
 ## Credits
 

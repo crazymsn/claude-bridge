@@ -1,6 +1,6 @@
 # ClaudeBridge
 
-ClaudeBridge 用个人微信远程控制 Mac 上的 Claude Code。你可以在手机微信里新建、切换、继续多个 Claude 会话，真实的 Claude Code 进程仍然运行在你的 Mac 上。
+ClaudeBridge 用个人微信远程控制电脑上的 Claude Code。你可以在手机微信里新建、切换、继续多个 Claude 会话，真实的 Claude Code 进程仍然运行在你的电脑上。
 
 这个仓库是 `codex-bridge` 微信运行逻辑的 Claude 版：扫码登录，保持 `serve` 常驻，把微信文本路由到本地编码 agent，再把 agent 输出、权限请求、选项确认等事件推回微信。
 
@@ -10,20 +10,25 @@ ClaudeBridge 用个人微信远程控制 Mac 上的 Claude Code。你可以在�
 - 常驻 `serve` 循环，接收微信消息并发送回复。
 - 支持多个 Claude Code 会话，每个会话可从微信指定。
 - 对齐 `codex-bridge` 的 slash 命令体验，同时保留原来的 `#` 短命令。
-- 接入 Claude Code hooks，推送工具输出、最终回复、通知、权限请求、选项输入、压缩上下文和子任务事件。
+- macOS 接入 Claude Code hooks，推送工具输出、最终回复、通知、权限请求、选项输入、压缩上下文和子任务事件。
+- Windows 直接启动 Claude 子进程，把 stdin/stdout/stderr 接到微信。
 - 持久化微信 context token，bridge 重启后仍能继续向最近的微信联系人回复。
 - 自动按微信文本长度分片，并在支持时发送 typing 状态。
 
 ## 运行环境
 
-ClaudeBridge 设计为运行在 macOS 上，因为它依赖 Terminal、FIFO 管道、`/tmp`、`lsof` 和 Claude Code hooks。
+支持的宿主设备：
 
-Mac 上需要：
+- macOS：完整 Terminal/FIFO/hooks 集成，也支持发现本地已启动的 Claude 会话。
+- Windows：支持通过 `/new` 创建的 Claude 会话，使用子进程管道转发输入输出。
+
+基础要求：
 
 - Go 1.22 或更新版本
-- Python 3
 - 已安装 Claude Code CLI，并且命令名为 `claude`
 - 可扫码登录的个人微信账号
+
+macOS 还需要 Python 3，用于 hook 和终端 mux 脚本。
 
 ## 构建
 
@@ -39,9 +44,21 @@ make cli
 ./bin/claude-bridge
 ```
 
+Windows PowerShell：
+
+```powershell
+go build -o .\bin\claude-bridge.exe .\cmd
+```
+
+生成的二进制文件在：
+
+```text
+.\bin\claude-bridge.exe
+```
+
 ## 首次初始化
 
-安装 Claude hook 脚本：
+macOS 先安装 Claude hook 脚本：
 
 ```bash
 ./bin/claude-bridge install-hooks
@@ -59,16 +76,34 @@ make cli
 ./bin/claude-bridge login
 ```
 
+Windows：
+
+```powershell
+.\bin\claude-bridge.exe login
+```
+
 后台启动 bridge：
 
 ```bash
 ./bin/claude-bridge start
 ```
 
+Windows：
+
+```powershell
+.\bin\claude-bridge.exe start
+```
+
 调试时可以前台运行：
 
 ```bash
 ./bin/claude-bridge serve
+```
+
+Windows：
+
+```powershell
+.\bin\claude-bridge.exe serve
 ```
 
 ## 本地命令
@@ -95,7 +130,7 @@ claude-bridge clear       # 清除会话、管道和日志，保留登录状态
 |---|---|
 | `/help` 或 `/h` | 查看命令帮助 |
 | `/status` 或 `/st` | 列出活跃会话 |
-| `/new ~/my-project` 或 `/n ~/my-project` | 在 Mac 上打开一个新的 Claude 会话 |
+| `/new ~/my-project` 或 `/n ~/my-project` | 打开一个新的 Claude 会话 |
 | `/open 01` 或 `/o 01` | 把 `01` 设为默认会话 |
 | `/s 01 hello` | 向 `01` 会话发送消息 |
 | `/allow` 或 `/al` | 同意当前 Claude 权限请求 |
@@ -133,7 +168,23 @@ bridge.pid             后台 bridge PID
 bridge.log             运行日志，会自动轮转
 ```
 
-会话管道和运行时 manifest 放在 `/tmp/claude-bridge-*`。
+macOS 会话管道和运行时 manifest 放在 `/tmp/claude-bridge-*`。Windows 通过 bridge 创建的会话保存在运行中的 bridge 进程里，进程退出后不可发现。
+
+## Windows 说明
+
+Windows 支持的重点是通过微信创建会话：
+
+```text
+/new C:\path\to\project
+```
+
+bridge 会在该目录启动 `claude` 子进程，把微信文本写入 Claude stdin，并把 Claude stdout/stderr 推回微信。
+
+当前 Windows 限制：
+
+- `install-hooks` 主要用于 macOS hook 集成。
+- `claude-bridge list` 只显示 macOS 文件系统可发现的会话；Windows 进程内会话在 `serve` 运行期间可通过 `/status` 查看。
+- 暂不支持挂接已经在 Windows 终端里手动打开的 Claude 会话。
 
 ## 开发
 
@@ -142,7 +193,12 @@ make cli
 go test ./...
 ```
 
-非 macOS 系统可以编辑和审查源码，但完整运行链路只支持 macOS。
+Windows 构建检查：
+
+```powershell
+go test .\...
+go build -o .\bin\claude-bridge.exe .\cmd
+```
 
 ## 致谢
 

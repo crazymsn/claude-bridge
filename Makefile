@@ -1,7 +1,7 @@
 BINARY_DIR := bin
 BINARY_NAME := claude-bridge
 
-.PHONY: all cli install-hooks install-local clean
+.PHONY: all cli cli-windows install-hooks install-local clean
 
 all: cli
 
@@ -10,6 +10,10 @@ GOFLAGS := CGO_ENABLED=1
 cli:
 	@mkdir -p $(BINARY_DIR)
 	$(GOFLAGS) go build -ldflags="-linkmode external" -o $(BINARY_DIR)/$(BINARY_NAME) ./cmd
+
+cli-windows:
+	@if not exist $(BINARY_DIR) mkdir $(BINARY_DIR)
+	go build -o $(BINARY_DIR)/$(BINARY_NAME).exe ./cmd
 
 # Install the Claude Code hook script.
 install-hooks:

@@ -10,11 +10,9 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/skip2/go-qrcode"
@@ -134,7 +132,7 @@ func runBridge(args []string) error {
 	}))
 	slog.SetDefault(logger)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := bridgeSignalContext(context.Background())
 	defer stop()
 
 	var adapter platform.Adapter = platform.NewILinkAdapter(*credsPath)
@@ -295,7 +293,7 @@ func runStart(args []string) error {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	configureBackgroundCommand(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -454,7 +452,7 @@ func runStop(args []string) error {
 		fmt.Println("bridge is not running")
 		return nil
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := terminatePID(pid); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
 	_ = os.Remove(pidPath)
@@ -475,33 +473,17 @@ func runClear(args []string) error {
 	// Stop the bridge first if it is running.
 	pidPath := bridgePIDPath(stateDir)
 	if pid, ok := readLivePID(pidPath); ok {
-		_ = syscall.Kill(pid, syscall.SIGTERM)
+		_ = terminatePID(pid)
 		fmt.Printf("bridge stopped, pid=%d\n", pid)
 	}
 
 	removed := 0
 
-	// /tmp directories created by the bridge.
-	tmpDirs := []string{
-		"/tmp/claude-bridge-elicit",
-		"/tmp/claude-bridge-perm",
-		"/tmp/claude-bridge-launch",
-		"/tmp/claude-bridge-hooks",
-		"/tmp/claude-bridge-sessions",
-	}
-	for _, dir := range tmpDirs {
-		if err := os.RemoveAll(dir); err == nil {
-			fmt.Println("removed:", dir)
-			removed++
+	for _, p := range runtimeCleanupPaths() {
+		if _, err := os.Stat(p); err != nil {
+			continue
 		}
-	}
-
-	// Control pipe and dynamic session pipes.
-	pipePaths, _ := filepath.Glob("/tmp/claude-bridge-control.pipe")
-	hookPipes, _ := filepath.Glob("/tmp/claude-hook-*.pipe")
-	inputPipes, _ := filepath.Glob("/tmp/claude-input-*.pipe")
-	for _, p := range append(append(pipePaths, hookPipes...), inputPipes...) {
-		if err := os.Remove(p); err == nil {
+		if err := os.RemoveAll(p); err == nil {
 			fmt.Println("removed:", p)
 			removed++
 		}
@@ -618,7 +600,7 @@ func readLivePID(path string) (int, bool) {
 	if err != nil || pid <= 0 {
 		return 0, false
 	}
-	if err := syscall.Kill(pid, 0); err != nil {
+	if !isPIDAlive(pid) {
 		return 0, false
 	}
 	return pid, true
