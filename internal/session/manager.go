@@ -23,13 +23,14 @@ const replacedInteractionToken = "__claude_bridge_replaced__"
 
 // Session represents one running Claude Code process.
 type Session struct {
-	ID      string
-	WorkDir string
-	InPipe  string
-	proc    *exec.Cmd
-	writer  io.WriteCloser
-	cancel  context.CancelFunc
-	alive   bool // true while the session goroutine is running
+	ID        string
+	WorkDir   string
+	InPipe    string
+	proc      *exec.Cmd
+	writer    io.WriteCloser
+	writeFunc func(text string) error
+	cancel    context.CancelFunc
+	alive     bool // true while the session goroutine is running
 }
 
 func normalizeSessionInput(text string) string {
@@ -47,6 +48,10 @@ func normalizeSessionInput(text string) string {
 
 // Write sends a line of text to Claude Code's stdin.
 func (s *Session) Write(text string) error {
+	text = normalizeSessionInput(text)
+	if s.writeFunc != nil {
+		return s.writeFunc(text)
+	}
 	if s.writer == nil && s.InPipe == "" {
 		return fmt.Errorf("session #%s does not support remote input (start via claude-bridge-local.sh to enable bidirectional interaction)", s.ID)
 	}
@@ -57,7 +62,6 @@ func (s *Session) Write(text string) error {
 		}
 		s.writer = writer
 	}
-	text = normalizeSessionInput(text)
 	slog.Info("session input", "id", s.ID, "chars", len([]rune(text)))
 	_, err := fmt.Fprintln(s.writer, text)
 	return err
@@ -66,6 +70,9 @@ func (s *Session) Write(text string) error {
 // IsAlive reports whether the process is still running.
 func (s *Session) IsAlive() bool {
 	if s.alive {
+		return true
+	}
+	if s.writeFunc != nil {
 		return true
 	}
 	if s.writer != nil {

@@ -11,7 +11,7 @@ This repository is the Claude-focused sibling of the WeChat runtime flow used by
 - Multiple Claude Code sessions, each addressable from WeChat.
 - Slash-command UX aligned with `codex-bridge`, while keeping the original short `#` commands.
 - Claude Code hook integration on macOS for tool output, final answers, notifications, permission requests, elicitation prompts, compaction events, and subagent events.
-- Direct Claude child-process sessions on Windows, with stdin/stdout/stderr bridged to WeChat.
+- Direct Claude print-mode sessions on Windows, using one stable Claude `--session-id` per WeChat session.
 - Context-token persistence so outbound WeChat replies keep working after bridge restarts.
 - Message chunking below WeChat text limits and typing indicators where the transport supports them.
 
@@ -20,7 +20,7 @@ This repository is the Claude-focused sibling of the WeChat runtime flow used by
 Supported hosts:
 
 - macOS: full Terminal/FIFO/hook integration, including discovery of locally started Claude sessions.
-- Windows: bridge-created Claude sessions via `/new`, using direct child-process pipes.
+- Windows: bridge-created Claude sessions via `/new`, using `claude -p --session-id <uuid>` per user turn.
 
 Required:
 
@@ -178,13 +178,27 @@ Windows support focuses on sessions created through WeChat:
 /new C:\path\to\project
 ```
 
-The bridge starts `claude` as a child process in that directory, sends WeChat text to Claude stdin, and forwards Claude stdout/stderr back to WeChat.
+The bridge creates a Claude session UUID for that WeChat session. Each user message runs:
+
+```text
+claude -p --session-id <uuid> -- "<message>"
+```
+
+The stable `--session-id` preserves Claude conversation context while using Claude Code's officially supported non-interactive pipe mode.
 
 Current Windows limits:
 
 - `install-hooks` is primarily for macOS hook integration.
 - `claude-bridge list` only shows filesystem-discoverable macOS sessions; Windows in-process sessions are visible through `/status` while `serve` is running.
 - Attaching to a Claude session that was already opened manually in a Windows terminal is not implemented yet.
+- Windows does not stream tool lifecycle hook events like macOS; it returns each `claude -p` turn output when the turn completes.
+
+Optional Windows environment variables:
+
+```powershell
+$env:CLAUDE_BRIDGE_CLAUDE_BIN = 'C:\Users\Alex\.local\bin\claude.exe'
+$env:CLAUDE_BRIDGE_PERMISSION_MODE = 'acceptEdits'
+```
 
 ## Development
 

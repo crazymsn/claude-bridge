@@ -11,7 +11,7 @@ ClaudeBridge 用个人微信远程控制电脑上的 Claude Code。你可以在�
 - 支持多个 Claude Code 会话，每个会话可从微信指定。
 - 对齐 `codex-bridge` 的 slash 命令体验，同时保留原来的 `#` 短命令。
 - macOS 接入 Claude Code hooks，推送工具输出、最终回复、通知、权限请求、选项输入、压缩上下文和子任务事件。
-- Windows 直接启动 Claude 子进程，把 stdin/stdout/stderr 接到微信。
+- Windows 使用 Claude print-mode，每个微信会话绑定一个稳定的 Claude `--session-id`。
 - 持久化微信 context token，bridge 重启后仍能继续向最近的微信联系人回复。
 - 自动按微信文本长度分片，并在支持时发送 typing 状态。
 
@@ -20,7 +20,7 @@ ClaudeBridge 用个人微信远程控制电脑上的 Claude Code。你可以在�
 支持的宿主设备：
 
 - macOS：完整 Terminal/FIFO/hooks 集成，也支持发现本地已启动的 Claude 会话。
-- Windows：支持通过 `/new` 创建的 Claude 会话，使用子进程管道转发输入输出。
+- Windows：支持通过 `/new` 创建的 Claude 会话，每轮消息运行 `claude -p --session-id <uuid>`。
 
 基础要求：
 
@@ -178,13 +178,27 @@ Windows 支持的重点是通过微信创建会话：
 /new C:\path\to\project
 ```
 
-bridge 会在该目录启动 `claude` 子进程，把微信文本写入 Claude stdin，并把 Claude stdout/stderr 推回微信。
+bridge 会为该微信会话创建一个 Claude session UUID。每条用户消息会运行：
+
+```text
+claude -p --session-id <uuid> -- "<message>"
+```
+
+稳定的 `--session-id` 用来保持 Claude 上下文，同时使用 Claude Code 官方支持的非交互 pipe 模式。
 
 当前 Windows 限制：
 
 - `install-hooks` 主要用于 macOS hook 集成。
 - `claude-bridge list` 只显示 macOS 文件系统可发现的会话；Windows 进程内会话在 `serve` 运行期间可通过 `/status` 查看。
 - 暂不支持挂接已经在 Windows 终端里手动打开的 Claude 会话。
+- Windows 不像 macOS hooks 那样流式推送工具生命周期事件；它会在每轮 `claude -p` 完成后返回该轮输出。
+
+Windows 可选环境变量：
+
+```powershell
+$env:CLAUDE_BRIDGE_CLAUDE_BIN = 'C:\Users\Alex\.local\bin\claude.exe'
+$env:CLAUDE_BRIDGE_PERMISSION_MODE = 'acceptEdits'
+```
 
 ## 开发
 

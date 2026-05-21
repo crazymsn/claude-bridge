@@ -3,8 +3,8 @@
 package session
 
 import (
-	"bufio"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,104 +25,113 @@ func Inspect() ([]Info, error) {
 	return nil, nil
 }
 
-// start launches Claude as a child process and wires stdin/stdout/stderr to the
-// bridge. Caller must hold m.mu.
+// start creates a Windows Claude print-mode session. Claude Code's default mode
+// expects an interactive TTY; on Windows the reliable bridge path is one
+// non-interactive `claude -p --session-id <uuid>` process per user turn.
+// Caller must hold m.mu.
 func (m *Manager) start(sid, workDir string) (*Session, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "claude")
-	cmd.Dir = workDir
-	cmd.Env = os.Environ()
-
-	stdin, err := cmd.StdinPipe()
+	claudeSessionID, err := newUUID()
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("stdin pipe: %w", err)
+		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("stdout pipe: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return nil, fmt.Errorf("start claude: %w", err)
-	}
+	inputs := make(chan string, 16)
 
 	s := &Session{
-		ID:      sid,
-		WorkDir: workDir,
-		proc:    cmd,
-		writer:  stdin,
-		cancel:  cancel,
-		alive:   true,
+		ID:        sid,
+		WorkDir:   workDir,
+		cancel:    cancel,
+		alive:     true,
+		writeFunc: enqueueWindowsInput(ctx, sid, inputs),
 	}
 	m.sessions[sid] = s
 
-	go m.forwardProcessOutput(ctx, sid, "Assistant", stdout)
-	go m.forwardProcessOutput(ctx, sid, "System", stderr)
 	go func() {
-		err := cmd.Wait()
-		if err != nil && ctx.Err() == nil {
-			m.onOutput(sid, "SENDER:System\nsession ended: "+err.Error())
-		} else {
-			m.onOutput(sid, "SENDER:System\nsession ended")
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case text := <-inputs:
+				m.runWindowsClaudeTurn(ctx, sid, workDir, claudeSessionID, text)
+			}
 		}
-		m.cleanupSession(sid)
 	}()
 
-	slog.Info("windows session started", "id", sid, "cwd", workDir, "pid", cmd.Process.Pid)
+	slog.Info("windows session started", "id", sid, "cwd", workDir, "claude_session_id", claudeSessionID)
 	return s, nil
 }
 
-func (m *Manager) forwardProcessOutput(ctx context.Context, sid, sender string, reader io.Reader) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-
-	var buf strings.Builder
-	flush := func() {
-		text := strings.TrimSpace(buf.String())
-		if text != "" {
-			m.onOutput(sid, "SENDER:"+sender+"\n"+text)
-			buf.Reset()
-		}
-	}
-
-	ticker := time.NewTicker(1200 * time.Millisecond)
-	defer ticker.Stop()
-	lines := make(chan string, 32)
-	go func() {
-		defer close(lines)
-		for scanner.Scan() {
-			lines <- scanner.Text()
-		}
-	}()
-
-	for {
+func enqueueWindowsInput(ctx context.Context, sid string, inputs chan<- string) func(string) error {
+	return func(text string) error {
 		select {
 		case <-ctx.Done():
-			return
-		case line, ok := <-lines:
-			if !ok {
-				flush()
-				return
-			}
-			buf.WriteString(line)
-			buf.WriteByte('\n')
-			if buf.Len() > 3000 {
-				flush()
-			}
-		case <-ticker.C:
-			flush()
+			return fmt.Errorf("session #%s has ended", sid)
+		case inputs <- text:
+			return nil
+		default:
+			return fmt.Errorf("session #%s input queue is full; wait for the current turn to finish", sid)
 		}
+	}
+}
+
+func (m *Manager) runWindowsClaudeTurn(ctx context.Context, sid, workDir, claudeSessionID, text string) {
+	args := []string{
+		"-p",
+		"--session-id", claudeSessionID,
+	}
+	if mode := strings.TrimSpace(os.Getenv("CLAUDE_BRIDGE_PERMISSION_MODE")); mode != "" {
+		args = append(args, "--permission-mode", mode)
+	}
+	args = append(args, "--", text)
+
+	bin := strings.TrimSpace(os.Getenv("CLAUDE_BRIDGE_CLAUDE_BIN"))
+	if bin == "" {
+		bin = "claude"
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = workDir
+	cmd.Env = os.Environ()
+	output, err := cmd.CombinedOutput()
+	body := strings.TrimSpace(string(output))
+	if body != "" {
+		m.onOutput(sid, "SENDER:Assistant\n"+body)
+	}
+	if err != nil && ctx.Err() == nil {
+		hint := err.Error()
+		if body == "" {
+			hint = fmt.Sprintf("%s\ncommand: %s", hint, renderWindowsClaudeCommand(bin, args))
+		}
+		m.onOutput(sid, "SENDER:System\nClaude turn failed: "+hint)
 	}
 }
 
 func openPipeWriter(path string, timeout time.Duration) (io.WriteCloser, error) {
 	return nil, fmt.Errorf("named pipes are not used on Windows")
+}
+
+func newUUID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate session id: %w", err)
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
+func renderWindowsClaudeCommand(bin string, args []string) string {
+	rendered := []string{bin}
+	for _, arg := range args {
+		if strings.ContainsAny(arg, " \t\r\n\"") {
+			rendered = append(rendered, strconvQuote(arg))
+			continue
+		}
+		rendered = append(rendered, arg)
+	}
+	return strings.Join(rendered, " ")
+}
+
+func strconvQuote(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
 }
