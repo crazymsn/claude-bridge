@@ -1,0 +1,17 @@
+[project]
+name = "claude-bridge"
+version = "0.2.0"
+description = "Bridge Claude Code to personal WeChat on Windows and macOS."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "wechatbot-sdk>=0.2.1,<0.3",
+  "qrcode>=8.0",
+]
+
+[project.scripts]
+claude-bridge-py = "claude_bridge.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

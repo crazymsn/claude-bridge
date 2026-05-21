@@ -145,7 +145,7 @@ func runBridge(args []string) error {
 	}
 
 	var mgr *session.Manager
-	mgr = session.New(func(sid, text string) {
+	mgr = session.NewWithStateDir(func(sid, text string) {
 		targetID := mgr.GetTarget()
 		if targetID == "" {
 			slog.Warn("dropping session output: no target set", "sid", sid)
@@ -162,7 +162,7 @@ func runBridge(args []string) error {
 		}
 		prefix := fmt.Sprintf("[%s] %s\n", sid, sender)
 		sendToTarget(targetID, prefix+body)
-	})
+	}, stateDir)
 
 	ambientUserPath := platform.AmbientUserPath(stateDir)
 	if targetID := platform.LoadAmbientUser(ambientUserPath); targetID != "" {

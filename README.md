@@ -15,7 +15,8 @@ This repository is the Claude-focused sibling of the WeChat runtime flow used by
 - Multiple Claude Code sessions, each addressable from WeChat.
 - Slash-command UX aligned with `codex-bridge`, while keeping the original short `#` commands.
 - Claude Code hook integration on macOS for tool output, final answers, notifications, permission requests, elicitation prompts, compaction events, and subagent events.
-- Direct Claude print-mode sessions on Windows, using one stable Claude `--session-id` per WeChat session.
+- Direct Claude stream-json print-mode sessions on Windows, using one stable Claude `--session-id` per WeChat session.
+- The same WeChat command surface on Windows and macOS: `/new`, `/open`, `/s`, `/status`, `/reset`, message chunking, typing indicators, durable WeChat context tokens, and stable Claude conversation context.
 - Context-token persistence so outbound WeChat replies keep working after bridge restarts.
 - Message chunking below WeChat text limits and typing indicators where the transport supports them.
 
@@ -24,7 +25,7 @@ This repository is the Claude-focused sibling of the WeChat runtime flow used by
 Supported hosts:
 
 - macOS: full Terminal/FIFO/hook integration, including discovery of locally started Claude sessions.
-- Windows: bridge-created Claude sessions via `/new`, using `claude -p --session-id <uuid>` per user turn.
+- Windows: bridge-created Claude sessions via `/new`, using `claude -p --session-id <uuid> --output-format stream-json` per user turn. Sessions are persisted and restored across bridge restarts.
 
 Required:
 
@@ -170,32 +171,28 @@ context-tokens.json    per-user WeChat context tokens
 ambient-user.txt       last WeChat target
 bridge.pid             background bridge PID
 bridge.log             rotating runtime log
+windows-sessions.json  Windows Claude session mappings
 ```
 
-macOS session pipes and runtime manifests are kept under `/tmp/claude-bridge-*`. Windows bridge-created sessions are kept in the running bridge process and are not discoverable after the process exits.
+macOS session pipes and runtime manifests are kept under `/tmp/claude-bridge-*`. Windows bridge-created session mappings are kept in `~/.claude-bridge/windows-sessions.json`, so `claude-bridge list` and bridge restarts can keep using the same Claude conversation IDs.
 
 ## Windows Notes
 
-Windows support focuses on sessions created through WeChat:
+Windows and macOS expose the same WeChat controls. On Windows, create or reopen a bridge-managed Claude session from WeChat:
 
 ```text
 /new C:\path\to\project
 ```
 
-The bridge creates a Claude session UUID for that WeChat session. Each user message runs:
+The bridge creates a durable Claude session UUID for that WeChat session. Each user message runs:
 
 ```text
-claude -p --session-id <uuid> -- "<message>"
+claude -p --session-id <uuid> --output-format stream-json --include-partial-messages -- "<message>"
 ```
 
-The stable `--session-id` preserves Claude conversation context while using Claude Code's officially supported non-interactive pipe mode.
+The stable `--session-id` preserves Claude conversation context while using Claude Code's officially supported non-interactive pipe mode. The stream-json output is forwarded to WeChat as Assistant, Assistant/Tool, or System messages, matching the macOS bridge's event-style feedback as closely as Claude Code's Windows CLI supports.
 
-Current Windows limits:
-
-- `install-hooks` is primarily for macOS hook integration.
-- `claude-bridge list` only shows filesystem-discoverable macOS sessions; Windows in-process sessions are visible through `/status` while `serve` is running.
-- Attaching to a Claude session that was already opened manually in a Windows terminal is not implemented yet.
-- Windows does not stream tool lifecycle hook events like macOS; it returns each `claude -p` turn output when the turn completes.
+The macOS `install-hooks` command is still available for Claude Code's Terminal/FIFO hook path. Windows does not need that hook path because its bridge backend uses Claude Code print-mode with stream-json output.
 
 Optional Windows environment variables:
 

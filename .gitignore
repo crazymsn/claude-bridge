@@ -3,3 +3,5 @@
 /bin/
 /CLAUDE.md
 /AGENTS.md
+__pycache__/
+*.py[cod]

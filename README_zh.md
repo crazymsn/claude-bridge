@@ -8,25 +8,24 @@ ClaudeBridge 用个人微信远程控制电脑上的 Claude Code。你可以在�
 
 - 通过 iLink 兼容的 `wechatbot` SDK 扫码登录个人微信。
 - 常驻 `serve` 循环，接收微信消息并发送回复。
-- 支持多个 Claude Code 会话，每个会话可从微信指定。
+- 支持多个 Claude Code 会话，每个会话都可以从微信指定。
 - 对齐 `codex-bridge` 的 slash 命令体验，同时保留原来的 `#` 短命令。
 - macOS 接入 Claude Code hooks，推送工具输出、最终回复、通知、权限请求、选项输入、压缩上下文和子任务事件。
-- Windows 使用 Claude print-mode，每个微信会话绑定一个稳定的 Claude `--session-id`。
-- 持久化微信 context token，bridge 重启后仍能继续向最近的微信联系人回复。
-- 自动按微信文本长度分片，并在支持时发送 typing 状态。
+- Windows 使用 Claude stream-json print-mode，每个微信会话绑定一个稳定的 Claude `--session-id`。
+- Windows 和 macOS 使用同一套微信命令：`/new`、`/open`、`/s`、`/status`、`/reset`、消息分片、typing 状态、微信 context token 持久化，以及稳定的 Claude 会话上下文。
 
 ## 运行环境
 
-支持的宿主设备：
+支持的宿主系统：
 
 - macOS：完整 Terminal/FIFO/hooks 集成，也支持发现本地已启动的 Claude 会话。
-- Windows：支持通过 `/new` 创建的 Claude 会话，每轮消息运行 `claude -p --session-id <uuid>`。
+- Windows：通过 `/new` 创建 Claude 会话，每轮消息运行 `claude -p --session-id <uuid> --output-format stream-json`。会话映射会持久化，bridge 重启后仍可继续使用。
 
 基础要求：
 
-- Go 1.22 或更新版本
-- 已安装 Claude Code CLI，并且命令名为 `claude`
-- 可扫码登录的个人微信账号
+- Go 1.22 或更新版本。
+- 已安装 Claude Code CLI，并且命令名为 `claude`。
+- 可扫码登录的个人微信账号。
 
 macOS 还需要 Python 3，用于 hook 和终端 mux 脚本。
 
@@ -56,7 +55,7 @@ go build -o .\bin\claude-bridge.exe .\cmd
 .\bin\claude-bridge.exe
 ```
 
-## 首次初始化
+## 首次设置
 
 macOS 先安装 Claude hook 脚本：
 
@@ -114,7 +113,7 @@ claude-bridge start       # 同上
 claude-bridge serve       # 前台运行 bridge
 claude-bridge status      # 查看 bridge 状态
 claude-bridge stop        # 停止后台 bridge
-claude-bridge list        # 查看当前可发现的 Claude 会话
+claude-bridge list        # 查看当前可发现或已持久化的 Claude 会话
 claude-bridge logs        # 查看最近日志
 claude-bridge logs -f     # 持续跟随日志
 claude-bridge login       # 扫码登录微信
@@ -161,37 +160,33 @@ claude-bridge clear       # 清除会话、管道和日志，保留登录状态
 重要文件：
 
 ```text
-credentials.json       微信登录状态
-context-tokens.json    每个微信联系人的 context token
-ambient-user.txt       最近一次微信目标
-bridge.pid             后台 bridge PID
-bridge.log             运行日志，会自动轮转
+credentials.json          微信登录状态
+context-tokens.json       每个微信联系人的 context token
+ambient-user.txt          最近一次微信目标
+bridge.pid                后台 bridge PID
+bridge.log                运行日志，会自动轮转
+windows-sessions.json     Windows Claude 会话映射
 ```
 
-macOS 会话管道和运行时 manifest 放在 `/tmp/claude-bridge-*`。Windows 通过 bridge 创建的会话保存在运行中的 bridge 进程里，进程退出后不可发现。
+macOS 会话管道和运行时 manifest 放在 `/tmp/claude-bridge-*`。Windows 通过 bridge 创建的会话映射保存在 `~/.claude-bridge/windows-sessions.json`，所以 `claude-bridge list` 和 bridge 重启后仍能继续使用同一个 Claude 会话 ID。
 
 ## Windows 说明
 
-Windows 支持的重点是通过微信创建会话：
+Windows 和 macOS 暴露同一套微信控制方式。在 Windows 上，从微信创建或恢复一个 bridge 管理的 Claude 会话：
 
 ```text
 /new C:\path\to\project
 ```
 
-bridge 会为该微信会话创建一个 Claude session UUID。每条用户消息会运行：
+bridge 会为该微信会话创建一个持久的 Claude session UUID。每条用户消息会运行：
 
 ```text
-claude -p --session-id <uuid> -- "<message>"
+claude -p --session-id <uuid> --output-format stream-json --include-partial-messages -- "<message>"
 ```
 
-稳定的 `--session-id` 用来保持 Claude 上下文，同时使用 Claude Code 官方支持的非交互 pipe 模式。
+稳定的 `--session-id` 用来保持 Claude 上下文，同时使用 Claude Code 官方支持的非交互 pipe 模式。stream-json 输出会作为 Assistant、Assistant/Tool 或 System 消息推回微信，尽量贴近 macOS hook 后端的事件式反馈。
 
-当前 Windows 限制：
-
-- `install-hooks` 主要用于 macOS hook 集成。
-- `claude-bridge list` 只显示 macOS 文件系统可发现的会话；Windows 进程内会话在 `serve` 运行期间可通过 `/status` 查看。
-- 暂不支持挂接已经在 Windows 终端里手动打开的 Claude 会话。
-- Windows 不像 macOS hooks 那样流式推送工具生命周期事件；它会在每轮 `claude -p` 完成后返回该轮输出。
+macOS 的 `install-hooks` 仍用于 Claude Code Terminal/FIFO hook 路径。Windows 不需要这条 hook 路径，因为 Windows 后端使用 Claude Code print-mode 和 stream-json 输出。
 
 Windows 可选环境变量：
 

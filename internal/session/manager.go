@@ -23,14 +23,15 @@ const replacedInteractionToken = "__claude_bridge_replaced__"
 
 // Session represents one running Claude Code process.
 type Session struct {
-	ID        string
-	WorkDir   string
-	InPipe    string
-	proc      *exec.Cmd
-	writer    io.WriteCloser
-	writeFunc func(text string) error
-	cancel    context.CancelFunc
-	alive     bool // true while the session goroutine is running
+	ID              string
+	WorkDir         string
+	InPipe          string
+	ClaudeSessionID string
+	proc            *exec.Cmd
+	writer          io.WriteCloser
+	writeFunc       func(text string) error
+	cancel          context.CancelFunc
+	alive           bool // true while the session goroutine is running
 }
 
 func normalizeSessionInput(text string) string {
@@ -101,17 +102,27 @@ type Manager struct {
 	pending        map[string]pendingInteraction
 	onOutput       OutputFunc
 	nextID         int
+	stateDir       string
 }
 
 // New creates a Manager.
 func New(onOutput OutputFunc) *Manager {
-	return &Manager{
+	return NewWithStateDir(onOutput, "")
+}
+
+// NewWithStateDir creates a Manager and restores any durable platform session
+// records kept under stateDir.
+func NewWithStateDir(onOutput OutputFunc, stateDir string) *Manager {
+	m := &Manager{
 		sessions:     make(map[string]*Session),
 		ambientPipes: make(map[string]bool),
 		manifestIDs:  make(map[string]string),
 		pending:      make(map[string]pendingInteraction),
 		onOutput:     onOutput,
+		stateDir:     stateDir,
 	}
+	m.restorePlatformSessions()
+	return m
 }
 
 // SetTarget sets the single message target that receives output from the bridge.
@@ -290,6 +301,7 @@ func (m *Manager) Dispatch(text string) (string, error) {
 	if t == "#r" || t == "#reset" || t == "/reset" || t == "/r" {
 		m.mu.Lock()
 		m.defaultSession = ""
+		m.savePlatformSessionsLocked()
 		m.mu.Unlock()
 		return "Default session cleared; use #<sid> or /open <sid> to choose one", nil
 	}
@@ -458,6 +470,7 @@ func (m *Manager) setDefaultSession(sid string) (string, error) {
 	}
 	m.mu.Lock()
 	m.defaultSession = sid
+	m.savePlatformSessionsLocked()
 	m.mu.Unlock()
 	return fmt.Sprintf("#%s set as default session; just send messages directly\n(send /reset to clear default)", sid), nil
 }
@@ -508,6 +521,7 @@ func (m *Manager) getOrCreate(sid, workDir string) (*Session, error) {
 				if m.defaultSession == sid {
 					m.defaultSession = ""
 				}
+				m.savePlatformSessionsLocked()
 				if workDir == "." {
 					return nil, fmt.Errorf("session #%s does not exist; create one with /new <dir>", sid)
 				}
@@ -541,6 +555,7 @@ func (m *Manager) newSession(workDir string) (sid, reply string, err error) {
 	}
 	m.mu.Lock()
 	m.defaultSession = sid
+	m.savePlatformSessionsLocked()
 	m.mu.Unlock()
 	reply = fmt.Sprintf("Session #%s created\nDir: %s\nSet as default; just send messages directly\n(send /reset to clear default)", sid, workDir)
 	return sid, reply, nil
@@ -574,6 +589,7 @@ func (m *Manager) cleanupSession(sid string) {
 	if m.defaultSession == sid {
 		m.defaultSession = ""
 	}
+	m.savePlatformSessionsLocked()
 	slog.Info("session cleaned up", "id", sid)
 }
 

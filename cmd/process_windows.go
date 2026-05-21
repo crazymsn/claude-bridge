@@ -52,5 +52,8 @@ func runtimeCleanupPaths() []string {
 	} {
 		paths = append(paths, filepath.Join(tmp, dir))
 	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".claude-bridge", "windows-sessions.json"))
+	}
 	return paths
 }
