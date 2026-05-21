@@ -1,3 +1,7 @@
+欢迎关注B站及YouTube频道：深度云创科技，感兴趣的朋友欢迎加入新时代智能体交流社群
+
+客服微信：16773345788
+
 # ClaudeBridge
 
 ClaudeBridge connects Claude Code to a personal WeChat account, so you can start, select, and control Claude sessions from your phone while the real Claude Code process keeps running on your computer.
