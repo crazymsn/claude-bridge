@@ -1,3 +1,7 @@
+欢迎关注B站及YouTube频道：深度云创科技，感兴趣的朋友欢迎加入新时代智能体交流社群
+
+客服微信：16773345788
+
 # ClaudeBridge
 
 ClaudeBridge connects Claude Code to a personal WeChat account. It is now a Python-only project: the same Python runtime is used on Windows and macOS, with no Go build step and no platform-specific feature downgrade.
