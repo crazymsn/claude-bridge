@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-claude-bridge-py = "claude_bridge.cli:main"
+claude-bridge = "claude_bridge.cli:main"
 
 [build-system]
 requires = ["hatchling"]

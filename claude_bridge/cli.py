@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("stop")
     sub.add_parser("status")
     sub.add_parser("logs")
+    sub.add_parser("list")
     sub.add_parser("clear")
     args = parser.parse_args(argv)
     command = args.command or "start"
@@ -42,6 +43,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_status(store)
     elif command == "logs":
         cmd_logs(store)
+    elif command == "list":
+        cmd_list(store)
     elif command == "clear":
         cmd_clear(store)
     else:
@@ -67,6 +70,7 @@ async def cmd_serve(store: StateStore) -> None:
     async def handle(msg):
         if not msg.text:
             return
+        runtime.set_target(msg.user_id)
         await runtime.typing(msg.user_id, True)
         try:
             manager = manager_holder["manager"]
@@ -128,6 +132,11 @@ def cmd_status(store: StateStore) -> None:
         print("bridge is not running")
 
 
+def cmd_list(store: StateStore) -> None:
+    manager = SessionManager(store, _noop_send)
+    print(manager.list_sessions())
+
+
 def cmd_logs(store: StateStore) -> None:
     try:
         print(store.log_path.read_text("utf-8", errors="replace")[-20000:])
@@ -141,6 +150,10 @@ def cmd_clear(store: StateStore) -> None:
         with suppress(FileNotFoundError):
             path.unlink()
             print(f"removed: {path}")
+
+
+async def _noop_send(text: str) -> None:
+    return None
 
 
 def _read_pid(path: Path) -> int | None:

@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .state import StateStore
+
+MAX_CHUNK_CHARS = 3900
 
 if TYPE_CHECKING:
     from wechatbot import IncomingMessage, WeChatBot
@@ -42,15 +43,20 @@ class WeChatRuntime:
         await self.bot.start()
 
     async def reply(self, msg: "IncomingMessage", text: str) -> None:
-        self.target_user = msg.user_id
-        self.store.save_target_user(msg.user_id)
-        await self.bot.reply(msg, text)
+        self.set_target(msg.user_id)
+        for chunk in _split_message(text):
+            await self.bot.reply(msg, chunk)
 
     async def send_to_target(self, text: str) -> None:
         if not self.target_user:
             print("[wechat] no target user yet; dropping outbound message", file=sys.stderr)
             return
-        await self.bot.send(self.target_user, text)
+        for chunk in _split_message(text):
+            await self.bot.send(self.target_user, chunk)
+
+    def set_target(self, user_id: str) -> None:
+        self.target_user = user_id
+        self.store.save_target_user(user_id)
 
     async def typing(self, user_id: str, enabled: bool) -> None:
         try:
@@ -60,3 +66,18 @@ class WeChatRuntime:
                 await self.bot.stop_typing(user_id)
         except Exception:
             pass
+
+
+def _split_message(text: str) -> list[str]:
+    if not text:
+        return [""]
+    chunks: list[str] = []
+    remaining = text
+    while len(remaining) > MAX_CHUNK_CHARS:
+        cut = remaining.rfind("\n", 0, MAX_CHUNK_CHARS)
+        if cut <= 0:
+            cut = MAX_CHUNK_CHARS
+        chunks.append(remaining[:cut])
+        remaining = remaining[cut:].lstrip("\n")
+    chunks.append(remaining)
+    return chunks

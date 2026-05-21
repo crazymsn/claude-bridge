@@ -1,35 +1,17 @@
-BINARY_DIR := bin
-BINARY_NAME := claude-bridge
+.PHONY: install dev-login dev-serve test clean
 
-.PHONY: all cli cli-windows install-hooks install-local clean
+install:
+	python -m pip install -e .
 
-all: cli
+dev-login:
+	python -m claude_bridge login
 
-GOFLAGS := CGO_ENABLED=1
+dev-serve:
+	python -m claude_bridge serve
 
-cli:
-	@mkdir -p $(BINARY_DIR)
-	$(GOFLAGS) go build -ldflags="-linkmode external" -o $(BINARY_DIR)/$(BINARY_NAME) ./cmd
-
-cli-windows:
-	@if not exist $(BINARY_DIR) mkdir $(BINARY_DIR)
-	go build -o $(BINARY_DIR)/$(BINARY_NAME).exe ./cmd
-
-# Install the Claude Code hook script.
-install-hooks:
-	@mkdir -p ~/.claude/hooks
-	@cp hooks/push_output.py ~/.claude/hooks/push_output.py
-	@chmod +x ~/.claude/hooks/push_output.py
-	@echo "Hook installed to ~/.claude/hooks/push_output.py"
-	@echo ""
-	@echo "Merge into your project's .claude/settings.json:"
-	@cat hooks/settings.json
-
-install-local:
-	@mkdir -p ~/.local/bin
-	@cp scripts/claude-bridge-local.sh ~/.local/bin/claude-bridge-local
-	@chmod +x ~/.local/bin/claude-bridge-local scripts/claude-bridge-local.sh scripts/claude_bridge_mux.py
-	@echo "Installed local launcher to ~/.local/bin/claude-bridge-local"
+test:
+	python -m compileall claude_bridge
 
 clean:
-	rm -rf $(BINARY_DIR)
+	rm -rf build dist *.egg-info
+	find claude_bridge -type d -name __pycache__ -prune -exec rm -rf {} +
